@@ -1,5 +1,3 @@
-// Source/PluginProcessor.cpp
-
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
@@ -78,16 +76,43 @@ juce::AudioProcessorEditor* GifSyncVSTAudioProcessor::createEditor()
 
 void GifSyncVSTAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    juce::MemoryOutputStream mo(destData, true);
-    mo.writeDouble(bpm.load(std::memory_order_relaxed));
+    juce::XmlElement xml("GifSyncState");
+    xml.setAttribute("bpm", bpm.load(std::memory_order_relaxed));
+    xml.setAttribute("syncBars", syncBars.load(std::memory_order_relaxed));
+    xml.setAttribute("gifPath", lastGifPath);
+    copyXmlToBinary(xml, destData);
 }
 
 void GifSyncVSTAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
+    if (auto xml = getXmlFromBinary(data, sizeInBytes))
+    {
+        if (xml->hasTagName("GifSyncState"))
+        {
+            const auto v = xml->getDoubleAttribute("bpm", 120.0);
+            if (v > 0.0)
+                bpm.store(v, std::memory_order_relaxed);
+
+            syncBars.store(xml->getDoubleAttribute("syncBars", 1.0), std::memory_order_relaxed);
+            lastGifPath = xml->getStringAttribute("gifPath", {});
+            return;
+        }
+    }
+
     juce::MemoryInputStream mi(data, (size_t) sizeInBytes, false);
     auto v = mi.readDouble();
     if (v > 0.0)
         bpm.store(v, std::memory_order_relaxed);
+}
+
+juce::String GifSyncVSTAudioProcessor::getLastGifPath() const
+{
+    return lastGifPath;
+}
+
+void GifSyncVSTAudioProcessor::setLastGifPath(const juce::String& path)
+{
+    lastGifPath = path;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
