@@ -1,6 +1,6 @@
 #include "PluginEditor.h"
+#include <cmath>
 
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
 static double nowSeconds()
@@ -27,7 +27,22 @@ GifSyncVSTAudioProcessorEditor::GifSyncVSTAudioProcessorEditor(GifSyncVSTAudioPr
     setResizable(false, false);
     setSize(420, 280);
 
-    statusText = "Right-click to load a GIF";
+    syncBars = processor.getSyncBars();
+
+    auto savedPath = processor.getLastGifPath();
+    if (savedPath.isNotEmpty())
+    {
+        juce::File f(savedPath);
+        if (f.existsAsFile())
+            loadGifFromFile(f);
+        else
+            statusText = "Saved GIF missing. Right-click to load a GIF";
+    }
+    else
+    {
+        statusText = "Right-click to load a GIF";
+    }
+
     lastTimerSec = nowSeconds();
     startTimerHz(60);
 }
@@ -111,8 +126,11 @@ void GifSyncVSTAudioProcessorEditor::showContextMenu()
     juce::PopupMenu m;
 
     m.addItem(1, "Load GIF...");
-    if (lastGifFile.existsAsFile())
-        m.addItem(2, "Reload");
+    {
+        juce::File f(processor.getLastGifPath());
+        if (f.existsAsFile())
+            m.addItem(2, "Reload");
+    }
 
     m.addSeparator();
 
@@ -149,8 +167,13 @@ void GifSyncVSTAudioProcessorEditor::showContextMenu()
 
                 auto chooser = std::make_shared<juce::FileChooser>(
                     "Select a GIF",
-                    lastGifFile.existsAsFile() ? lastGifFile.getParentDirectory()
-                                               : juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                    [&]()
+                    {
+                        juce::File f(processor.getLastGifPath());
+                        if (f.existsAsFile())
+                            return f.getParentDirectory();
+                        return juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+                    }(),
                     "*.gif");
 
                 chooser->launchAsync(flags, [this, chooser](const juce::FileChooser& fc)
@@ -165,8 +188,9 @@ void GifSyncVSTAudioProcessorEditor::showContextMenu()
 
             if (r == 2)
             {
-                if (lastGifFile.existsAsFile())
-                    loadGifFromFile(lastGifFile);
+                juce::File f(processor.getLastGifPath());
+                if (f.existsAsFile())
+                    loadGifFromFile(f);
                 return;
             }
 
@@ -187,6 +211,7 @@ void GifSyncVSTAudioProcessorEditor::showContextMenu()
             }
 
             freeRunPhaseSec = 0.0;
+            processor.setSyncBars(syncBars);
             repaint();
         });
 }
@@ -290,7 +315,7 @@ void GifSyncVSTAudioProcessorEditor::loadGifFromFile(const juce::File& file)
     stbi_image_free(pixels);
     if (delays) stbi_image_free(delays);
 
-    lastGifFile = file;
+    processor.setLastGifPath(file.getFullPathName());
     statusText = file.getFileName();
 
     const int ww = juce::jlimit(64, 4096, w);
